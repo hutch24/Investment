@@ -10,13 +10,14 @@ pd.set_option('display.float_format', lambda x: f'{x:,.2f}')
 
 class autoTrade :
     def __init__(self, start_cash, ticker) :
-        self.fee_rate = 0.05/100 # 수수료
+        self.fee_rate = 0.0005 # 수수료
         self.target_price = 0 # 목표 매수가
         # self.bull = False # 상승장 여부
         self.ma5 = 0 # 5일 이동평균
         self.ticker = ticker # 티커
         # self.buy_yn = False # 매수 여부
-        self.buy_yn = (upbit.get_balance(self.ticker) > 0) #보유 여부
+        self.balance = upbit.get_balance(self.ticker)
+        # self.buy_yn = (upbit.get_balance(self.ticker) > 0) #보유 여부-매도 예약 후 미체결 등으로 보유여부는 바뀔 수 있으므로 최신화 필요
 
         self.start_cash = start_cash # 시작 자산
 
@@ -47,29 +48,33 @@ class autoTrade :
                     print(now.strftime('%m.%d - %H:%M:%S'),
                           "\topenTime :", openTime.strftime('%m.%d - %H:%M:%S'), 
                           "\tTarget :", f"{self.target_price:,.0f}", 
-                          "\t현재가 :", f"{current_price:,.0f}", "\tMA5 :", f"{self.ma5:,.0f}", 
-                          "\t보유여부 :", self.buy_yn, "\t평단 :", f"{avg_buy_price:,.0f}")
+                          "\t현재가 :", f"{current_price:,.0f}",
+                          "\t평단 :", f"{avg_buy_price:,.0f}",
+                          "\t보유수량 :", self.balance,
+                          "\t현재수익률 :", f"{(current_price - avg_buy_price)/avg_buy_price:.2%}" ,
+                          "\tMA5 :", f"{self.ma5:,.0f}",
+                          )
                 
                 # 매일 오전 9시 10초에 매도
                 if openTime < now < openTime + datetime.timedelta(seconds=5) :
                     openTime = datetime.datetime(now.year, now.month, now.day) + datetime.timedelta(days=1, hours=9, seconds=10)
-                    if(self.buy_yn) :
+                    if self.balance > 0 :# 해당 코인을 보유하고 있을 경우
                         print("==================== [ 매도 시도 ] ====================")
                         slackBot.message("매도 시도")
                         self.sell_coin()
                     self.get_today_data() # 데이터 갱신
                 
                 # 현재 가격이 목표가 이상이고, 5일 이동평균 이상이면서, 보유수량이 없으면 매수
-                if((current_price >= self.target_price) and (current_price >= self.ma5) and not self.buy_yn) : # 매수 시도
+                if( (current_price >= self.target_price) and (current_price >= self.ma5) and (self.balance==0) ) : # 매수 시도
                     print("==================== [ 매수 시도 ] ====================")
                     slackBot.message("매수 시도")
                     self.buy_coin()
 
                 # 현재 가격이 수수료 포함 평단의 5% 이상이면 매도
-                if((current_price > (avg_buy_price/(1-self.fee_rate))*(1.05)) and self.buy_yn) : # 매수 시도
-                    print("==================== [ 매도 시도 ] ====================")
-                    slackBot.message("매도 시도")
-                    self.sell_coin()
+                # if((current_price > (avg_buy_price/(1-self.fee_rate))*(1.05)) and self.buy_yn) : 
+                #     print("==================== [ 매도 시도 ] ====================")
+                #     slackBot.message("매도 시도")
+                #     self.sell_coin()
 
                 
             except Exception as err:
@@ -107,7 +112,6 @@ class autoTrade :
         print("==================== [ 데이터 갱신 완료 ] ====================\n")
 
     def buy_coin(self) :
-        self.buy_yn = True
         balance = upbit.get_balance() # 잔고 조회
         
         if balance > 5000 : # 잔고 5000원 이상일 때
@@ -118,7 +122,6 @@ class autoTrade :
             slackBot.message("#매수 주문\n매수 주문 가격 : " + str(buy_price) + "원")
 
     def sell_coin(self) :
-        self.buy_yn = False
         balance = upbit.get_balance(self.ticker) # 잔고 조회
 
         upbit.sell_market_order(ticker, balance)
@@ -148,10 +151,17 @@ with open("key_info.txt") as f :
 upbit = pyupbit.Upbit(acc_key, sec_key)
 slackBot = slack(app_token, channel)
 
-start_cash = upbit.get_balance()
-ticker = "KRW-ETH"
-tradingBot = autoTrade(start_cash, ticker)
-tradingBot.start()
+# pyupbit login check
+if upbit.get_balance() == None:
+    print("check the connection")
+else:
+    start_cash = upbit.get_balance()
+    ticker = "KRW-ETH"
+    tradingBot = autoTrade(start_cash, ticker)
+    tradingBot.start()
 
-
-#거래 내역과 수익률 기록하는 차트 필요
+"""
+거래 내역과 수익률 기록
+ - 시각화
+ - 엑셀
+"""
